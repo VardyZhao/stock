@@ -1,0 +1,20 @@
+app:
+  name: stock
+  environment: local
+  debug: on
+  mode: debug
+log:
+  level: debug
+database:
+  - name: default
+    driver: mysql
+    host: 127.0.0.1
+    port: 3336
+    dbname: test
+    username: root
+    password: root
+    migrate: true
+    charset: utf8mb4
+    max_open: 10
+    max_idle: 3
+    max_life: 600
