@@ -8,6 +8,7 @@ import (
 var migrateMap = map[string][]interface{}{
 	"default": {
 		&model.Department{},
+		&model.Stock{},
 	},
 }
 

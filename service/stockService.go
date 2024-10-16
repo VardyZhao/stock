@@ -13,34 +13,36 @@ import (
 	"strings"
 )
 
-type DepartmentService struct {
+type StockService struct {
 	MinPage int
 	MaxPage int
 	Url     string
+	Referer string
+	OrgCode string
 	DB      *gorm.DB
 }
 
-func (ds *DepartmentService) Run() {
+func (ds *StockService) Run() {
 
 	ds.DB = db.Conn.GetDB("default")
 
-	dl := make([]model.Department, 0)
+	sl := make([]model.Stock, 0)
 	for i := ds.MinPage; i < ds.MaxPage; i++ {
 		res := ds.request(i)
-		deps, err := ds.parseHTML(res)
+		stks, err := ds.parseHTML(res)
 		if err != nil {
 			log.Fatal(err)
 			return
 		}
-		dl = append(dl, deps...)
+		sl = append(sl, stks...)
 	}
-	if len(dl) > 0 {
-		ds.bulkUpsert(dl)
+	if len(sl) > 0 {
+		ds.bulkUpsert(sl)
 	}
 }
 
-func (ds *DepartmentService) request(page int) string {
-	url := fmt.Sprintf(ds.Url, page)
+func (ds *StockService) request(page int) string {
+	url := fmt.Sprintf(ds.Url, ds.OrgCode, page)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Fatalf("创建请求失败: %v", err)
@@ -53,7 +55,7 @@ func (ds *DepartmentService) request(page int) string {
 		"Accept-Language":    "zh-CN,zh;q=0.9",
 		"Connection":         "keep-alive",
 		"Cookie":             cookie,
-		"Referer":            "https://data.10jqka.com.cn/market/longhu/",
+		"Referer":            ds.Referer,
 		"Sec-Fetch-Dest":     "empty",
 		"Sec-Fetch-Mode":     "cors",
 		"Sec-Fetch-Site":     "same-origin",
@@ -64,7 +66,6 @@ func (ds *DepartmentService) request(page int) string {
 		"sec-ch-ua-mobile":   "?0",
 		"sec-ch-ua-platform": `"Windows"`,
 	}
-
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -84,60 +85,53 @@ func (ds *DepartmentService) request(page int) string {
 	if err != nil {
 		log.Fatalf("读取响应失败: %v", err)
 	}
+	ds.Referer = url
 	return body
 }
 
 // 解析 HTML 表格并提取数据
-func (ds *DepartmentService) parseHTML(html string) ([]model.Department, error) {
-	departments := make([]model.Department, 0)
+func (ds *StockService) parseHTML(html string) ([]model.Stock, error) {
+	stocks := make([]model.Stock, 0)
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
-		return departments, fmt.Errorf("解析 HTML 失败: %v", err)
+		return stocks, fmt.Errorf("解析 HTML 失败: %v", err)
 	}
 
 	doc.Find("table.m-table tbody tr").Each(func(i int, row *goquery.Selection) {
-		var dept model.Department
+		var stk model.Stock
 
 		// 提取每一列的数据，去除多余空格
-		//dept.Name = strings.TrimSpace(row.Find("td").Eq(1).Text())
+		stk.OnListDate = strings.TrimSpace(row.Find("td").Eq(0).Text())
 		nameCell := row.Find("td").Eq(1)
 		if linkTag := nameCell.Find("a"); linkTag.Length() > 0 {
-			dept.Url, _ = linkTag.Attr("href")
-			dept.Name, _ = linkTag.Attr("title")
+			stk.Url, _ = linkTag.Attr("href")
+			stk.Name = linkTag.Text()
 		}
-		dept.Appearances = util.ParseInt(strings.TrimSpace(row.Find("td").Eq(2).Text()))
-		dept.FundsUsed = strings.TrimSpace(row.Find("td").Eq(3).Text())
-		dept.AnnualAppearances = util.ParseInt(strings.TrimSpace(row.Find("td").Eq(4).Text()))
-		dept.AnnualStocks = util.ParseInt(strings.TrimSpace(row.Find("td").Eq(5).Text()))
-		dept.SuccessRate = strings.TrimSpace(row.Find("td").Eq(6).Text())
+		stk.OnListReason = strings.TrimSpace(row.Find("td").Eq(2).Text())
+		stk.PriceChange = util.ConvertFloatStrToInt(strings.TrimSpace(row.Find("td").Eq(3).Text()))
+		stk.AmountBought = util.ConvertFloatStrToInt(strings.TrimSpace(row.Find("td").Eq(4).Text()))
+		stk.AmountSold = util.ConvertFloatStrToInt(strings.TrimSpace(row.Find("td").Eq(5).Text()))
+		stk.NetTradingAmount = util.ConvertFloatStrToInt(strings.TrimSpace(row.Find("td").Eq(6).Text()))
+		stk.Sector = strings.TrimSpace(row.Find("td").Eq(7).Text())
 
-		departments = append(departments, dept)
+		stocks = append(stocks, stk)
 	})
 
-	return departments, nil
+	return stocks, nil
 }
 
 // 批量入库
-func (ds *DepartmentService) bulkUpsert(departments []model.Department) {
+func (ds *StockService) bulkUpsert(stocks []model.Stock) {
 	result := ds.DB.Clauses(
 		clause.OnConflict{
-			Columns:   []clause.Column{{Name: "name"}},                                                                                        // 冲突字段为 name
-			DoUpdates: clause.AssignmentColumns([]string{"appearances", "funds_used", "annual_appearances", "annual_stocks", "success_rate"}), // 需要更新的字段
+			Columns:   []clause.Column{{Name: "name"}, {Name: "on_list_date"}},
+			DoUpdates: clause.AssignmentColumns([]string{"url", "on_list_date", "on_list_reason", "price_change", "amount_bought", "amount_sold", "net_trading_amount", "sector"}),
 		},
-	).CreateInBatches(departments, 100)
+	).CreateInBatches(stocks, 100)
 
 	if result.Error != nil {
 		fmt.Println("批量插入/更新失败:", result.Error)
 	} else {
 		fmt.Printf("成功插入/更新 %d 条记录\n", result.RowsAffected)
 	}
-}
-
-func (ds *DepartmentService) GetAll() []model.Department {
-	var departments []model.Department
-	result := ds.DB.Find(&departments)
-	if result.Error != nil {
-		log.Fatalln(result.Error)
-	}
-	return departments
 }

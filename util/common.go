@@ -4,22 +4,10 @@ import (
 	"fmt"
 	"golang.org/x/net/html/charset"
 	"io"
-	"math/rand"
 	"net/http"
-	"time"
+	"regexp"
+	"strconv"
 )
-
-// RandStringRunes 返回随机字符串
-func RandStringRunes(n int) string {
-	var letterRunes = []rune("1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-	rand.Seed(time.Now().UnixNano())
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
-	}
-	return string(b)
-}
 
 func ParseInt(s string) int {
 	var i int
@@ -27,7 +15,18 @@ func ParseInt(s string) int {
 	return i
 }
 
-// 读取并自动转换编码的响应内容
+func ConvertFloatStrToInt(s string) int {
+	// 将字符串转换为浮点数
+	floatVal, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+
+	// 乘以100并转换为整数
+	intVal := int(floatVal * 100)
+	return intVal
+}
+
 func ReadBodyWithCharset(resp *http.Response) (string, error) {
 	reader, err := charset.NewReader(resp.Body, resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -38,4 +37,15 @@ func ReadBodyWithCharset(resp *http.Response) (string, error) {
 		return "", err
 	}
 	return string(body), nil
+}
+
+// ExtractOrgCode 提取营业部编码
+func ExtractOrgCode(url string) (string, error) {
+	re := regexp.MustCompile(`orgcode/([a-zA-Z0-9]+)/?`)
+	matches := re.FindStringSubmatch(url)
+
+	if len(matches) < 2 {
+		return "", fmt.Errorf("无法匹配到代码")
+	}
+	return matches[1], nil
 }

@@ -18,3 +18,12 @@ database:
     max_open: 10
     max_idle: 3
     max_life: 600
+redis:
+  - name: default
+    host: 127.0.0.1
+    port: 6379
+    username:
+    password:
+    db: 0
+producer:
+  -
