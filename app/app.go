@@ -5,6 +5,7 @@ import (
 	"stock/db"
 	"stock/service"
 	"stock/util"
+	"time"
 )
 
 func Init() {
@@ -21,20 +22,22 @@ func Init() {
 func Run() {
 	ds := service.DepartmentService{
 		MinPage: 1,
-		MaxPage: 13,
+		MaxPage: 10,
 		Url:     "https://data.10jqka.com.cn/ifmarket/lhbyyb/type/1/tab/sbcs/field/sbcs/sort/desc/page/%d/",
 	}
 	ds.Run()
 	departments := ds.GetAll()
 	if len(departments) > 0 {
 		for _, dept := range departments {
-			orgCode, _ := util.ExtractOrgCode(dept.Url)
+			currentDate := time.Now()
+			t2, _ := time.Parse("2006-01-02", "2024-10-16")
+			currentDate = t2
 			ss := service.StockService{
-				MinPage: 1,
-				MaxPage: 2,
-				Url:     "http://data.10jqka.com.cn/ifmarket/lhbhistory/orgcode/%s/field/ENDDATE/order/desc/page/%d/",
-				Referer: dept.Url,
-				OrgCode: orgCode,
+				Url:         "http://data.10jqka.com.cn/ifmarket/lhbhistory/orgcode/%s/field/ENDDATE/order/desc/page/%d/",
+				Referer:     dept.Url,
+				OrgCode:     dept.OrgCode,
+				QueryFlag:   true,
+				CollectDate: currentDate,
 			}
 			ss.Run()
 		}

@@ -11,15 +11,16 @@ import (
 	"stock/model"
 	"stock/util"
 	"strings"
+	"time"
 )
 
 type StockService struct {
-	MinPage int
-	MaxPage int
-	Url     string
-	Referer string
-	OrgCode string
-	DB      *gorm.DB
+	Url         string
+	Referer     string
+	OrgCode     string
+	QueryFlag   bool
+	CollectDate time.Time
+	DB          *gorm.DB
 }
 
 func (ds *StockService) Run() {
@@ -27,14 +28,22 @@ func (ds *StockService) Run() {
 	ds.DB = db.Conn.GetDB("default")
 
 	sl := make([]model.Stock, 0)
-	for i := ds.MinPage; i < ds.MaxPage; i++ {
-		res := ds.request(i)
+	page := 1
+	for ds.QueryFlag {
+		res := ds.request(page)
 		stks, err := ds.parseHTML(res)
 		if err != nil {
+			ds.QueryFlag = false
 			log.Fatal(err)
 			return
 		}
 		sl = append(sl, stks...)
+		page++
+		fmt.Println(ds.OrgCode)
+		fmt.Println(page)
+		if !ds.QueryFlag {
+			break
+		}
 	}
 	if len(sl) > 0 {
 		ds.bulkUpsert(sl)
@@ -102,6 +111,11 @@ func (ds *StockService) parseHTML(html string) ([]model.Stock, error) {
 
 		// 提取每一列的数据，去除多余空格
 		stk.OnListDate = strings.TrimSpace(row.Find("td").Eq(0).Text())
+		t2, _ := time.Parse("2006-01-02", stk.OnListDate)
+		if t2.Before(ds.CollectDate) {
+			ds.QueryFlag = false
+			return
+		}
 		nameCell := row.Find("td").Eq(1)
 		if linkTag := nameCell.Find("a"); linkTag.Length() > 0 {
 			stk.Url, _ = linkTag.Attr("href")
@@ -113,9 +127,13 @@ func (ds *StockService) parseHTML(html string) ([]model.Stock, error) {
 		stk.AmountSold = util.ConvertFloatStrToInt(strings.TrimSpace(row.Find("td").Eq(5).Text()))
 		stk.NetTradingAmount = util.ConvertFloatStrToInt(strings.TrimSpace(row.Find("td").Eq(6).Text()))
 		stk.Sector = strings.TrimSpace(row.Find("td").Eq(7).Text())
+		stk.OrgCode = ds.OrgCode
 
 		stocks = append(stocks, stk)
 	})
+	if len(stocks) == 0 {
+		ds.QueryFlag = false
+	}
 
 	return stocks, nil
 }
@@ -124,7 +142,7 @@ func (ds *StockService) parseHTML(html string) ([]model.Stock, error) {
 func (ds *StockService) bulkUpsert(stocks []model.Stock) {
 	result := ds.DB.Clauses(
 		clause.OnConflict{
-			Columns:   []clause.Column{{Name: "name"}, {Name: "on_list_date"}},
+			Columns:   []clause.Column{{Name: "name"}, {Name: "on_list_date"}, {Name: "org_code"}},
 			DoUpdates: clause.AssignmentColumns([]string{"url", "on_list_date", "on_list_reason", "price_change", "amount_bought", "amount_sold", "net_trading_amount", "sector"}),
 		},
 	).CreateInBatches(stocks, 100)

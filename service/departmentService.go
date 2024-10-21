@@ -103,6 +103,8 @@ func (ds *DepartmentService) parseHTML(html string) ([]model.Department, error) 
 		nameCell := row.Find("td").Eq(1)
 		if linkTag := nameCell.Find("a"); linkTag.Length() > 0 {
 			dept.Url, _ = linkTag.Attr("href")
+			orgCode, _ := util.ExtractOrgCode(dept.Url)
+			dept.OrgCode = orgCode
 			dept.Name, _ = linkTag.Attr("title")
 		}
 		dept.Appearances = util.ParseInt(strings.TrimSpace(row.Find("td").Eq(2).Text()))
@@ -121,8 +123,8 @@ func (ds *DepartmentService) parseHTML(html string) ([]model.Department, error) 
 func (ds *DepartmentService) bulkUpsert(departments []model.Department) {
 	result := ds.DB.Clauses(
 		clause.OnConflict{
-			Columns:   []clause.Column{{Name: "name"}},                                                                                        // 冲突字段为 name
-			DoUpdates: clause.AssignmentColumns([]string{"appearances", "funds_used", "annual_appearances", "annual_stocks", "success_rate"}), // 需要更新的字段
+			Columns:   []clause.Column{{Name: "org_code"}},
+			DoUpdates: clause.AssignmentColumns([]string{"name", "appearances", "funds_used", "annual_appearances", "annual_stocks", "success_rate"}),
 		},
 	).CreateInBatches(departments, 100)
 
